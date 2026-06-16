@@ -1,0 +1,6 @@
+session.json
+raw_conversations.json
+debug_api.json
+debug_channels.png
+__pycache__/
+*.pyc
