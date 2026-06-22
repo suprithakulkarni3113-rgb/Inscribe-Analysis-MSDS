@@ -1,2 +1,6 @@
 playwright
 pandas
+plotly
+streamlit
+wordcloud
+matplotlib
