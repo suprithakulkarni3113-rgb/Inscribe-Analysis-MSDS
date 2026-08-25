@@ -506,7 +506,7 @@ with tab5:
     else:
         def netlify_fig(key, height=380):
             spec = D[key]
-            fig = go.Figure(data=spec["data"], layout=spec["layout"])
+            fig = go.Figure(data=spec["data"], layout=spec["layout"], skip_invalid=True)
             fig.update_layout(
                 template=TEMPLATE,
                 paper_bgcolor=BG, plot_bgcolor=BG,
