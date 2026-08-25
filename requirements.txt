@@ -1,6 +1,7 @@
-playwright
 pandas
 plotly
 streamlit
 wordcloud
 matplotlib
+Pillow
+numpy
