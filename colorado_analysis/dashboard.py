@@ -106,7 +106,9 @@ CC = {
 }
 
 def clean(t):
-    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html.unescape(str(t or "")))).strip()
+    if t is None or (isinstance(t, float) and t != t):  # catches NaN
+        return ""
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html.unescape(str(t)))).strip()
 
 LABEL = "#e2e8f0"   # bright enough to read on dark bg
 MUTED = "#94a3b8"   # secondary text
@@ -133,10 +135,20 @@ def chart_layout(fig, height=380, xangle=0, legend=True):
     return fig
 
 @st.cache_data
+def load_netlify_charts():
+    p = OUT / "netlify_charts.json"
+    if not p.exists():
+        return None
+    import json
+    return json.loads(p.read_text(encoding="utf-8-sig"))
+
+
+@st.cache_data
 def load():
     df = pd.read_csv(OUT / "conversations.csv")
     for col in ["title", "body", "author", "channel", "last_responder"]:
         df[col] = df[col].apply(clean)
+    df["author"] = df["author"].replace("", "Anonymous")
     for col in ["view_count", "response_count", "reply_count", "reaction_count"]:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
     df["created_date"]  = pd.to_datetime(df["created_date"],  errors="coerce", utc=True)
@@ -197,11 +209,12 @@ k6.metric("Channels w/ Posts",   f"{fdf['channel'].nunique()} / 22")
 st.divider()
 
 # ══ Tabs ══════════════════════════════════════════════════════════════════════
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "❓  Is InScribe Helping?",
     "📌  What Students Ask",
     "📊  Channels & Activity",
     "👤  Contributors",
+    "🎓  Career Outcomes Survey",
 ])
 
 # ════════════════════════════════════════════════
@@ -482,6 +495,108 @@ with tab4:
                           ))
         chart_layout(fig, height=460, legend=False)
         st.plotly_chart(fig, use_container_width=True)
+
+# ════════════════════════════════════════════════
+# TAB 5 — CAREER OUTCOMES SURVEY
+# ════════════════════════════════════════════════
+with tab5:
+    D = load_netlify_charts()
+    if D is None:
+        st.warning("netlify_charts.json not found in the dashboard folder.")
+    else:
+        def netlify_fig(key, height=380):
+            spec = D[key]
+            fig = go.Figure(data=spec["data"], layout=spec["layout"])
+            fig.update_layout(
+                template=TEMPLATE,
+                paper_bgcolor=BG, plot_bgcolor=BG,
+                height=height,
+                margin=dict(l=10, r=10, t=40, b=10),
+                font=dict(color=LABEL, family="Inter, sans-serif"),
+            )
+            return fig
+
+        st.markdown("### MS-DS Career Outcomes Survey")
+        st.caption("56 alumni respondents · Survey period: May – July 2026 · University of Colorado Boulder")
+
+        # ── KPI row ───────────────────────────────────────────────────────────
+        k1, k2, k3, k4, k5, k6 = st.columns(6)
+        k1.metric("Respondents",       "56")
+        k2.metric("Employed Full-Time","73%")
+        k3.metric("Career Switchers",  "53%")
+        k4.metric("Got Promoted",      "56%")
+        k5.metric("Very Satisfied",    "41%")
+        k6.metric("Would Recommend",   "82%")
+
+        st.divider()
+
+        # ── Employment & Career Outcomes ──────────────────────────────────────
+        st.markdown("#### Employment & Career Outcomes")
+        c1, c2 = st.columns(2)
+        with c1:
+            st.plotly_chart(netlify_fig("emp", 340), use_container_width=True)
+        with c2:
+            st.plotly_chart(netlify_fig("cs", 340), use_container_width=True)
+
+        c1, c2 = st.columns(2)
+        with c1:
+            st.plotly_chart(netlify_fig("promo", 320), use_container_width=True)
+        with c2:
+            st.plotly_chart(netlify_fig("path", 320), use_container_width=True)
+            st.caption("'Already employed' recoded from free-text 'Other' responses")
+
+        st.plotly_chart(netlify_fig("jsd", 300), use_container_width=True)
+        st.caption("Only the 21 respondents who actively searched and found a role")
+
+        st.divider()
+
+        # ── Satisfaction & Program Value ──────────────────────────────────────
+        st.markdown("#### Satisfaction & Program Value")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.plotly_chart(netlify_fig("sat", 340), use_container_width=True)
+        with c2:
+            st.plotly_chart(netlify_fig("nps", 340), use_container_width=True)
+        with c3:
+            st.plotly_chart(netlify_fig("ph", 340), use_container_width=True)
+
+        st.divider()
+
+        # ── Compensation & Seniority ──────────────────────────────────────────
+        st.markdown("#### Compensation & Seniority")
+        c1, c2 = st.columns(2)
+        with c1:
+            st.plotly_chart(netlify_fig("inc", 360), use_container_width=True)
+        with c2:
+            st.plotly_chart(netlify_fig("cl", 360), use_container_width=True)
+
+        st.divider()
+
+        # ── Demographics & Background ─────────────────────────────────────────
+        st.markdown("#### Demographics & Background")
+        st.plotly_chart(netlify_fig("ind", 360), use_container_width=True)
+        st.caption("Industries with < 3 respondents grouped into 'Other'")
+
+        c1, c2 = st.columns(2)
+        with c1:
+            st.plotly_chart(netlify_fig("age", 340), use_container_width=True)
+        with c2:
+            st.plotly_chart(netlify_fig("mot", 340), use_container_width=True)
+
+        st.plotly_chart(netlify_fig("gt", 320), use_container_width=True)
+
+        st.divider()
+
+        # ── Resources & Program Highlights ────────────────────────────────────
+        st.markdown("#### Resources & Program Highlights")
+        c1, c2 = st.columns(2)
+        with c1:
+            st.plotly_chart(netlify_fig("res", 360), use_container_width=True)
+            st.caption("Multi-select · N/A excluded · counts can exceed 56")
+        with c2:
+            st.plotly_chart(netlify_fig("hl", 360), use_container_width=True)
+            st.caption("Multi-select · 'None of these' and N/A excluded")
+
 
 st.divider()
 st.caption("Scraped & analysed by Supritha Kulkarni · CU Boulder MSDS · June 2026 · Built with Python + Streamlit")
