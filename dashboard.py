@@ -708,10 +708,9 @@ with tab6:
             st.caption("Multi-select — among the 78 non-visitors")
             reasons_no_visit = expand_multi(sf["Q3"])
             if len(reasons_no_visit):
-                fig = px.bar(reasons_no_visit.reset_index(),
-                             x="count", y="Q3", orientation="h",
-                             text="count",
-                             labels={"Q3": "", "count": "# Students"})
+                rnv = pd.DataFrame({"Reason": reasons_no_visit.index, "Count": reasons_no_visit.values})
+                fig = px.bar(rnv, x="Count", y="Reason", orientation="h",
+                             text="Count", labels={"Reason": "", "Count": "# Students"})
                 fig.update_traces(marker_color="#f87171", marker_opacity=0.85,
                                   textposition="outside")
                 chart_layout(fig, height=280, legend=False)
@@ -722,10 +721,9 @@ with tab6:
             st.caption("Multi-select — among the 169 who didn't ask")
             reasons_no_ask = expand_multi(sf["Q7"])
             if len(reasons_no_ask):
-                fig2 = px.bar(reasons_no_ask.reset_index(),
-                              x="count", y="Q7", orientation="h",
-                              text="count",
-                              labels={"Q7": "", "count": "# Students"})
+                rna = pd.DataFrame({"Reason": reasons_no_ask.index, "Count": reasons_no_ask.values})
+                fig2 = px.bar(rna, x="Count", y="Reason", orientation="h",
+                              text="Count", labels={"Reason": "", "Count": "# Students"})
                 fig2.update_traces(marker_color="#fb923c", marker_opacity=0.85,
                                    textposition="outside")
                 chart_layout(fig2, height=280, legend=False)
