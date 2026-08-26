@@ -1,4 +1,7 @@
-import json
+"""
+CU Boulder MSDS — InScribe Community Analysis Dashboard
+"""
+import html, re
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -7,132 +10,821 @@ from pathlib import Path
 import streamlit as st
 import matplotlib.pyplot as plt
 
-st.set_page_config(page_title="InScribe Analysis", page_icon="📚", layout="wide")
+st.set_page_config(
+    page_title="CU Boulder MSDS — InScribe Analysis",
+    page_icon="🎓", layout="wide",
+)
+
+st.markdown("""
+<style>
+/* Page background */
+.stApp { background-color: #0f172a; }
+
+/* Sidebar */
+[data-testid="stSidebar"] { background-color: #1e293b; }
+[data-testid="stSidebar"] * { color: #e2e8f0 !important; }
+
+/* KPI cards */
+[data-testid="metric-container"] {
+    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+    border: 1px solid #334155;
+    border-radius: 14px;
+    padding: 16px 20px;
+}
+[data-testid="metric-container"] label { color: #94a3b8 !important; font-size: 0.78rem; }
+[data-testid="metric-container"] [data-testid="stMetricValue"] {
+    color: #f1f5f9 !important; font-size: 1.7rem; font-weight: 700;
+}
+[data-testid="metric-container"] [data-testid="stMetricDelta"] { color: #38bdf8 !important; }
+
+/* Headings */
+h1 { color: #f1f5f9 !important; font-weight: 800 !important; letter-spacing: -0.5px; }
+h2 { color: #e2e8f0 !important; font-weight: 700 !important; margin-top: 0.2rem !important; }
+h3 { color: #cbd5e1 !important; font-weight: 600 !important; }
+
+/* Body text & captions */
+p, .stMarkdown p { color: #94a3b8 !important; }
+.stCaption, [data-testid="stCaptionContainer"] p { color: #64748b !important; }
+
+/* Tabs */
+[data-testid="stTabs"] button {
+    color: #94a3b8 !important;
+    font-weight: 600;
+    border-radius: 8px 8px 0 0;
+}
+[data-testid="stTabs"] button[aria-selected="true"] {
+    color: #38bdf8 !important;
+    border-bottom: 2px solid #38bdf8 !important;
+}
+
+/* Divider */
+hr { border-color: #1e293b !important; }
+
+/* Dataframe */
+[data-testid="stDataFrame"] { background: #1e293b; border-radius: 10px; }
+
+/* Expander */
+[data-testid="stExpander"] { background: #1e293b; border-radius: 10px; border: 1px solid #334155; }
+
+/* Info/warning/error boxes */
+[data-testid="stAlert"] { border-radius: 10px; border: none; }
+.stAlert [data-testid="stMarkdownContainer"] p { color: inherit !important; }
+
+/* Block container */
+.block-container { padding-top: 1.5rem; padding-bottom: 2rem; max-width: 1200px; }
+</style>""", unsafe_allow_html=True)
+
+TEMPLATE = "plotly_dark"
+BG       = "rgba(0,0,0,0)"   # transparent — inherits page bg
+GRID     = "#1e293b"
+ACCENT   = "#38bdf8"
 
 OUT = Path(__file__).parent
 
-# ── Load data ─────────────────────────────────────────────────────────────────
+CC = {
+    "General":                                                    "#38bdf8",
+    "Machine Learning":                                           "#f472b6",
+    "Statistical Modeling for Data Science":                      "#a78bfa",
+    "Data Mining Foundations and Practice":                       "#34d399",
+    "Data Science Foundations: Statistical Inference":            "#fbbf24",
+    "Data Science Methods for Quality Improvement":               "#4ade80",
+    "Vital Skills":                                               "#fb923c",
+    "Databases":                                                  "#818cf8",
+    "Text Market Analytics":                                      "#f87171",
+    "Bayesian Statistics":                                        "#2dd4bf",
+    "Modeling and Predicting Climate Anomalies":                  "#a3e635",
+    "Data Science Foundations: Data Structures and Algorithms":   "#c084fc",
+    "High Performance and Parallel Computing":                    "#fdba74",
+    "Computer Vision":                                            "#67e8f9",
+    "Industry Collaboration: IBM Capstone Project":               "#fde68a",
+    "Statistical Learning for Data Science":                      "#86efac",
+    "Effective Communication":                                    "#cbd5e1",
+    "NLP: Natural Language Processing":                           "#7dd3fc",
+    "Deep Learning Applications for Computer Vision":             "#d8b4fe",
+    "Security and Ethical Hacking":                               "#fca5a5",
+    "Internet Policy":                                            "#fcd34d",
+}
+
+def clean(t):
+    if t is None or (isinstance(t, float) and t != t):  # catches NaN
+        return ""
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html.unescape(str(t)))).strip()
+
+LABEL = "#e2e8f0"   # bright enough to read on dark bg
+MUTED = "#94a3b8"   # secondary text
+
+def chart_layout(fig, height=380, xangle=0, legend=True):
+    axis = dict(
+        gridcolor=GRID,
+        zerolinecolor=GRID,
+        tickfont=dict(color=LABEL, size=11),
+        title_font=dict(color=LABEL, size=12),
+    )
+    fig.update_layout(
+        template=TEMPLATE,
+        paper_bgcolor=BG, plot_bgcolor=BG,
+        height=height,
+        margin=dict(l=0, r=10, t=16, b=10),
+        font=dict(family="Inter, sans-serif", color=LABEL),
+        xaxis={**axis, "tickangle": xangle},
+        yaxis=axis,
+        showlegend=legend,
+        legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color=LABEL)),
+    )
+    fig.update_traces(textfont=dict(color=LABEL))
+    return fig
+
+@st.cache_data
+def load_netlify_charts():
+    p = OUT / "netlify_charts.json"
+    if not p.exists():
+        return None
+    import json
+    return json.loads(p.read_text(encoding="utf-8-sig"))
+
+
+@st.cache_data
+def load_inscribe_feedback():
+    p = OUT / "inscribe_feedback_survey.csv"
+    if not p.exists():
+        return None
+    sf = pd.read_csv(p, skiprows=[1, 2], encoding="latin-1")
+    for col in ["Q4_1", "Q9_1", "Q10_1", "Q13_1"]:
+        sf[col] = pd.to_numeric(sf[col], errors="coerce")
+    return sf
+
+
 @st.cache_data
 def load():
-    data = json.loads((OUT / "inscribe_conversations.json").read_text(encoding="utf-8"))
-    df = pd.DataFrame(data)
-    df["view_count"]     = pd.to_numeric(df["view_count"], errors="coerce").fillna(0).astype(int)
-    df["response_count"] = pd.to_numeric(df["response_count"], errors="coerce").fillna(0).astype(int)
-    df["reaction_count"] = pd.to_numeric(df["reaction_count"], errors="coerce").fillna(0).astype(int)
-    df["created_date"]   = pd.to_datetime(df["created_date"], errors="coerce", utc=True)
-    df["last_response"]  = pd.to_datetime(df["last_response"], errors="coerce", utc=True)
+    df = pd.read_csv(OUT / "conversations.csv")
+    for col in ["title", "body", "author", "channel", "last_responder"]:
+        df[col] = df[col].apply(clean)
+    df["author"] = df["author"].replace("", "Anonymous")
+    for col in ["view_count", "response_count", "reply_count", "reaction_count"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
+    df["created_date"]  = pd.to_datetime(df["created_date"],  errors="coerce", utc=True)
+    df["last_response"] = pd.to_datetime(df["last_response"], errors="coerce", utc=True)
+    df.loc[df["last_response"].dt.year < 2000, "last_response"] = pd.NaT
     df["response_hours"] = (df["last_response"] - df["created_date"]).dt.total_seconds() / 3600
-    df["short_title"]    = df["title"].apply(lambda t: t[:50] + "…" if len(str(t)) > 50 else t)
+    df["month"]         = df["created_date"].dt.to_period("M").astype(str)
+    df["type_label"]    = df["type"].map({
+        "helpQuestion": "Help / Question",
+        "sharePost":    "Share / Resource",
+        "liveSession":  "Live Session",
+    }).fillna(df["type"])
+    df["short_title"]   = df["title"].apply(lambda t: t[:55] + "…" if len(t) > 55 else t)
+    df["has_responses"] = df["response_count"] > 0
+    df["is_anonymous"]  = df["is_anonymous"].astype(str).str.lower().isin(["true","1","yes"])
     return df
 
 df = load()
 
+# ── Sidebar ───────────────────────────────────────────────────────────────────
+with st.sidebar:
+    st.markdown("### Filters")
+    sel_ch   = st.selectbox("Channel", ["All Channels"] + sorted(df["channel"].dropna().unique()))
+    sel_type = st.selectbox("Post Type", ["All Types"] + sorted(df["type_label"].dropna().unique()))
+    all_m    = sorted(df["month"].dropna().unique())
+    sel_m    = st.multiselect("Month(s)", all_m, default=all_m)
+    st.caption("Data: Dec 2025 – Jun 2026")
+
+fdf = df.copy()
+if sel_ch   != "All Channels": fdf = fdf[fdf["channel"] == sel_ch]
+if sel_type != "All Types":    fdf = fdf[fdf["type_label"] == sel_type]
+if sel_m:                      fdf = fdf[fdf["month"].isin(sel_m)]
+
+questions = fdf[fdf["type_label"] == "Help / Question"]
+shares    = fdf[fdf["type_label"] == "Share / Resource"]
+
 # ── Header ────────────────────────────────────────────────────────────────────
-st.title("📚 InScribe Community — Conversation Analysis")
-st.caption("Data scraped from the InScribe Support community · Built with Python + Streamlit")
-st.markdown("---")
+st.title("CU Boulder MSDS — InScribe Community Analysis")
+st.caption("Analysing whether InScribe is effectively supporting students · Dec 2025 – Jun 2026")
+st.divider()
 
-# ── KPI row ───────────────────────────────────────────────────────────────────
-k1, k2, k3, k4, k5 = st.columns(5)
-k1.metric("Total Conversations", len(df))
-k2.metric("Total Views", f"{df['view_count'].sum():,}")
-k3.metric("Avg Views / Post", f"{df['view_count'].mean():.0f}")
-k4.metric("100% Answered", f"{int(df['has_answer'].sum())}/{len(df)}")
-k5.metric("Unique Authors", df["author"].nunique())
+# ── KPIs ─────────────────────────────────────────────────────────────────────
+total_q     = len(questions)
+responded_q = int(questions["has_responses"].sum())
+resp_rate   = int(responded_q / max(total_q, 1) * 100)
+rt_vals     = fdf["response_hours"].dropna()
+rt_vals     = rt_vals[rt_vals > 0]
+med_rt      = rt_vals.median() if len(rt_vals) else 0
 
-st.markdown("---")
+k1, k2, k3, k4, k5, k6 = st.columns(6)
+k1.metric("Total Posts",         f"{len(fdf):,}")
+k2.metric("Total Views",         f"{fdf['view_count'].sum():,}")
+k3.metric("Questions Asked",     f"{total_q:,}")
+k4.metric("Response Rate",       f"{resp_rate}%")
+k5.metric("Median Response Time",f"{med_rt:.0f} hrs")
+k6.metric("Channels w/ Posts",   f"{fdf['channel'].nunique()} / 22")
 
-# ── Row 1: Top questions + views vs responses ─────────────────────────────────
-col1, col2 = st.columns([3, 2])
+st.divider()
 
-with col1:
-    st.subheader("🔥 Top 10 Most Viewed Questions")
-    top10 = df.nlargest(10, "view_count").sort_values("view_count")
-    fig = px.bar(
-        top10, x="view_count", y="short_title", orientation="h",
-        labels={"view_count": "Views", "short_title": ""},
-        color="view_count", color_continuous_scale="Blues",
-        text="view_count"
+# ══ Tabs ══════════════════════════════════════════════════════════════════════
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "❓  Is InScribe Helping?",
+    "📌  What Students Ask",
+    "📊  Channels & Activity",
+    "👤  Contributors",
+    "🎓  Career Outcomes Survey",
+    "📋  InScribe Feedback Survey",
+])
+
+# ════════════════════════════════════════════════
+# TAB 1 — IS INSCRIBE HELPING?
+# ════════════════════════════════════════════════
+with tab1:
+    unans_pct   = 100 - resp_rate
+    top_unans   = questions[~questions["has_responses"]].nlargest(1, "view_count")
+    pain_title  = top_unans.iloc[0]["title"][:55] if len(top_unans) else "—"
+    pain_views  = int(top_unans.iloc[0]["view_count"]) if len(top_unans) else 0
+
+    b1, b2, b3 = st.columns(3)
+    b1.info(    f"**{resp_rate}%** of questions received at least one community response.")
+    b2.warning( f"**{unans_pct}%** of questions are still unanswered — a clear support gap.")
+    b3.error(   f"Top unanswered: **\"{pain_title}\"** — {pain_views:,} views, zero replies.")
+
+    st.markdown(" ")
+    c1, c2 = st.columns(2)
+
+    with c1:
+        st.markdown("#### Answered vs Unanswered per Channel")
+        st.caption("How well is each channel's community responding?")
+        q_ch = questions.groupby("channel").agg(
+            Questions=("id","count"),
+            Unanswered=("has_responses", lambda x: (~x).sum()),
+        ).reset_index()
+        q_ch["Answered"] = q_ch["Questions"] - q_ch["Unanswered"]
+        q_ch = q_ch.sort_values("Questions", ascending=True)
+
+        fig = go.Figure()
+        fig.add_bar(x=q_ch["Answered"],   y=q_ch["channel"], orientation="h",
+                    name="Answered",   marker_color="#38bdf8", marker_opacity=0.9,
+                    textfont=dict(color=LABEL))
+        fig.add_bar(x=q_ch["Unanswered"], y=q_ch["channel"], orientation="h",
+                    name="Unanswered", marker_color="#f87171", marker_opacity=0.9,
+                    textfont=dict(color=LABEL))
+        fig.update_layout(barmode="stack",
+                          legend=dict(orientation="h", y=-0.08, bgcolor="rgba(0,0,0,0)",
+                                      font=dict(color=LABEL)))
+        chart_layout(fig, height=440, legend=True)
+        st.plotly_chart(fig, use_container_width=True)
+
+    with c2:
+        st.markdown("#### High-View Unanswered Questions")
+        st.caption("Many students had these questions — nobody answered them.")
+        unans_df = questions[~questions["has_responses"]].nlargest(10, "view_count")
+        if len(unans_df):
+            fig2 = px.bar(
+                unans_df.sort_values("view_count"),
+                x="view_count", y="short_title", orientation="h",
+                color="channel", color_discrete_map=CC,
+                text="view_count",
+                labels={"view_count":"Views","short_title":""},
+            )
+            fig2.update_traces(texttemplate="%{text:,}", textposition="outside",
+                               marker_opacity=0.85)
+            chart_layout(fig2, height=440, legend=False)
+            st.plotly_chart(fig2, use_container_width=True)
+        else:
+            st.success("All questions have at least one response!")
+
+    st.divider()
+
+    st.markdown("#### Median Response Time by Channel")
+    st.caption("How quickly students get help. Shorter bar = faster community support.")
+    rt_ch = (
+        fdf[fdf["response_hours"] > 0]
+        .groupby("channel")["response_hours"]
+        .median().round(1).reset_index()
+        .rename(columns={"response_hours": "Median Hours"})
+        .sort_values("Median Hours", ascending=True)
     )
-    fig.update_traces(texttemplate="%{text:,}", textposition="outside")
-    fig.update_layout(coloraxis_showscale=False, margin=dict(l=0, r=40, t=10, b=10), height=380)
-    st.plotly_chart(fig, use_container_width=True)
-
-with col2:
-    st.subheader("💬 Views vs Responses")
-    fig2 = px.scatter(
-        df, x="response_count", y="view_count",
-        hover_name="title", size="reaction_count",
-        size_max=20, color="view_count",
-        color_continuous_scale="Oranges",
-        labels={"response_count": "Responses", "view_count": "Views"},
+    fig3 = px.bar(
+        rt_ch, x="Median Hours", y="channel", orientation="h",
+        color="Median Hours", color_continuous_scale="RdYlGn_r",
+        text="Median Hours",
+        labels={"channel": "", "Median Hours": "Median hrs to First Response"},
     )
-    fig2.update_layout(coloraxis_showscale=False, margin=dict(l=0, r=0, t=10, b=10), height=380)
-    st.plotly_chart(fig2, use_container_width=True)
-
-st.markdown("---")
-
-# ── Row 2: Response time + posts over time ────────────────────────────────────
-col3, col4 = st.columns(2)
-
-with col3:
-    st.subheader("⏱️ Response Time Distribution")
-    times = df["response_hours"].dropna()
-    fig3 = px.histogram(
-        times, nbins=10,
-        labels={"value": "Hours to First Response", "count": "Posts"},
-        color_discrete_sequence=["#55A868"]
+    fig3.update_traces(
+        texttemplate="%{text:.0f}h", textposition="outside",
+        textfont=dict(color=LABEL, size=11), marker_opacity=0.85,
     )
-    fig3.add_vline(x=times.mean(), line_dash="dash", line_color="red",
-                   annotation_text=f"Mean {times.mean():.0f}h")
-    fig3.add_vline(x=times.median(), line_dash="dot", line_color="orange",
-                   annotation_text=f"Median {times.median():.0f}h")
-    fig3.update_layout(showlegend=False, margin=dict(l=0, r=0, t=10, b=10), height=320)
+    fig3.update_layout(
+        coloraxis_showscale=False,
+        yaxis=dict(tickfont=dict(color=LABEL, size=11), title_font=dict(color=LABEL)),
+        xaxis=dict(tickfont=dict(color=LABEL, size=11), title_font=dict(color=LABEL),
+                   gridcolor=GRID),
+    )
+    chart_layout(fig3, height=340, legend=False)
     st.plotly_chart(fig3, use_container_width=True)
 
-with col4:
-    st.subheader("📅 Posting Activity Over Time")
-    dated = df.dropna(subset=["created_date"]).copy()
-    dated["month"] = dated["created_date"].dt.to_period("M").astype(str)
-    monthly = dated.groupby("month").size().reset_index(name="posts")
-    fig4 = px.bar(monthly, x="month", y="posts", color="posts",
-                  color_continuous_scale="Blues",
-                  labels={"month": "Month", "posts": "Conversations"})
-    fig4.update_layout(coloraxis_showscale=False, margin=dict(l=0, r=0, t=10, b=10), height=320)
-    st.plotly_chart(fig4, use_container_width=True)
+# ════════════════════════════════════════════════
+# TAB 2 — WHAT STUDENTS ASK
+# ════════════════════════════════════════════════
+with tab2:
+    c1, c2 = st.columns([3, 2])
 
-st.markdown("---")
+    with c1:
+        st.markdown("#### Top 12 Most Viewed Questions")
+        st.caption("High views = many students shared the same doubt.")
+        top_q = questions.nlargest(12, "view_count").sort_values("view_count")
+        fig = px.bar(
+            top_q, x="view_count", y="short_title", orientation="h",
+            color="channel", color_discrete_map=CC,
+            text="view_count",
+            labels={"view_count":"Views","short_title":""},
+        )
+        fig.update_traces(texttemplate="%{text:,}", textposition="outside",
+                          marker_opacity=0.85)
+        chart_layout(fig, height=480, legend=True)
+        fig.update_layout(legend_title="Channel")
+        st.plotly_chart(fig, use_container_width=True)
 
-# ── Row 3: Word cloud + author table ─────────────────────────────────────────
-col5, col6 = st.columns([2, 3])
+    with c2:
+        st.markdown("#### What Are Students Posting?")
+        type_df = fdf.groupby("type_label").size().reset_index(name="Count")
+        fig2 = px.pie(
+            type_df, names="type_label", values="Count",
+            color_discrete_map={
+                "Help / Question":  "#38bdf8",
+                "Share / Resource": "#4ade80",
+                "Live Session":     "#fbbf24",
+            },
+            hole=0.55,
+        )
+        fig2.update_traces(textposition="inside", textinfo="percent+label",
+                           textfont_size=12, marker=dict(line=dict(color="#0f172a", width=2)))
+        fig2.update_layout(showlegend=False, height=260,
+                           margin=dict(l=0,r=0,t=10,b=0),
+                           template=TEMPLATE, paper_bgcolor=BG)
+        st.plotly_chart(fig2, use_container_width=True)
 
-with col5:
-    st.subheader("☁️ Word Cloud — Topics")
-    text = " ".join(df["title"].fillna("") + " " + df["body"].fillna(""))
-    wc = WordCloud(width=600, height=320, background_color="white",
-                   colormap="Blues", max_words=60).generate(text)
-    fig5, ax = plt.subplots(figsize=(6, 3.2))
-    ax.imshow(wc, interpolation="bilinear")
-    ax.axis("off")
-    plt.tight_layout(pad=0)
-    st.pyplot(fig5)
+        st.markdown("#### Top Shared Resources")
+        st.caption("Most reacted community tips & tools.")
+        if len(shares):
+            top_sh = shares.nlargest(5, "reaction_count")
+            for _, row in top_sh.iterrows():
+                st.markdown(
+                    f"<div style='background:#1e293b;border-radius:8px;"
+                    f"padding:10px 14px;margin-bottom:8px;border-left:3px solid #38bdf8'>"
+                    f"<span style='color:#e2e8f0;font-size:0.85rem;font-weight:600'>"
+                    f"{row['short_title']}</span><br>"
+                    f"<span style='color:#64748b;font-size:0.75rem'>"
+                    f"👍 {row['reaction_count']} reactions &nbsp;·&nbsp; 👁 {row['view_count']:,} views</span>"
+                    f"</div>", unsafe_allow_html=True
+                )
 
-with col6:
-    st.subheader("👤 Author Activity")
-    author_df = df.groupby("author").agg(
-        Posts=("title", "count"),
-        Total_Views=("view_count", "sum"),
-        Total_Responses=("response_count", "sum"),
-    ).sort_values("Total_Views", ascending=False).reset_index()
-    st.dataframe(author_df, use_container_width=True, height=320)
+    st.divider()
 
-st.markdown("---")
+    st.markdown("#### Word Cloud — What Students Talk About Most")
+    st.caption("Built from question titles and post bodies across all channels.")
+    text = " ".join(questions["title"].fillna("") + " " + questions["body"].fillna(""))
+    stopwords = {
+        "the","a","an","and","or","in","of","to","is","it","for","i","this","that",
+        "my","me","we","be","with","are","on","have","has","was","but","from","as",
+        "so","if","by","at","not","they","their","them","its","our","you","your",
+        "http","https","www","com","just","can","do","all","any","also","would",
+        "could","should","will","been","than","then","when","where","how","what",
+        "which","who","there","here","one","get","got","use","using","used",
+        "am","im","hi","hey","thanks","thank","anyone","ll","ve","re",
+    }
+    if text.strip():
+        wc = WordCloud(
+            width=1400, height=400, background_color="#0f172a",
+            colormap="Blues", max_words=80,
+            stopwords=stopwords, collocations=True,
+        ).generate(text)
+        fig_wc, ax = plt.subplots(figsize=(14, 4))
+        fig_wc.patch.set_facecolor("#0f172a")
+        ax.set_facecolor("#0f172a")
+        ax.imshow(wc, interpolation="bilinear")
+        ax.axis("off")
+        plt.tight_layout(pad=0)
+        st.pyplot(fig_wc)
 
-# ── Full data table ───────────────────────────────────────────────────────────
-with st.expander("📋 View Full Dataset"):
-    display_cols = ["title", "author", "view_count", "response_count",
-                    "reaction_count", "has_answer", "channel", "created_date"]
-    st.dataframe(df[display_cols].sort_values("view_count", ascending=False),
-                 use_container_width=True)
+# ════════════════════════════════════════════════
+# TAB 3 — CHANNELS & ACTIVITY
+# ════════════════════════════════════════════════
+with tab3:
+    c1, c2 = st.columns([2, 3])
 
-st.caption("Scraped & analysed by Supritha Kulkarni · May 2026")
+    with c1:
+        st.markdown("#### Posts per Channel")
+        ch_df = fdf.groupby("channel").size().reset_index(name="Posts").sort_values("Posts", ascending=True)
+        fig = px.bar(
+            ch_df, x="Posts", y="channel", orientation="h",
+            color="channel", color_discrete_map=CC, text="Posts",
+            labels={"channel":"","Posts":"# Posts"},
+        )
+        fig.update_traces(textposition="outside", marker_opacity=0.85)
+        chart_layout(fig, height=500, legend=False)
+        st.plotly_chart(fig, use_container_width=True)
+
+    with c2:
+        st.markdown("#### Monthly Activity")
+        st.caption("How community engagement evolves month over month.")
+        monthly = fdf.groupby(["month","type_label"]).size().reset_index(name="Posts")
+        fig2 = px.bar(
+            monthly, x="month", y="Posts", color="type_label",
+            color_discrete_map={
+                "Help / Question":  "#38bdf8",
+                "Share / Resource": "#4ade80",
+                "Live Session":     "#fbbf24",
+            },
+            barmode="stack",
+            labels={"month":"","Posts":"Posts","type_label":""},
+        )
+        fig2.update_traces(marker_opacity=0.85)
+        fig2.update_layout(legend=dict(orientation="h", y=-0.15, bgcolor="rgba(0,0,0,0)"),
+                           xaxis_tickangle=-30)
+        chart_layout(fig2, height=280, legend=True)
+        st.plotly_chart(fig2, use_container_width=True)
+
+        st.markdown("#### Channel Summary")
+        ch_table = fdf.groupby("channel").agg(
+            Posts=("id","count"),
+            Views=("view_count","sum"),
+            Questions=("type_label", lambda x: (x=="Help / Question").sum()),
+            Unanswered=("has_responses", lambda x: (~x).sum()),
+            Authors=("author","nunique"),
+        ).sort_values("Posts", ascending=False).reset_index()
+        ch_table["Response Rate"] = (
+            (ch_table["Questions"] - ch_table["Unanswered"])
+            / ch_table["Questions"].replace(0,1) * 100
+        ).round(0).astype(int).astype(str) + "%"
+        st.dataframe(
+            ch_table.rename(columns={"channel":"Channel","Views":"Total Views"}),
+            use_container_width=True, hide_index=True, height=240,
+        )
+
+# ════════════════════════════════════════════════
+# TAB 4 — CONTRIBUTORS
+# ════════════════════════════════════════════════
+with tab4:
+    poster_freq = fdf.groupby("author").size()
+    one_time    = int((poster_freq == 1).sum())
+    repeat      = int((poster_freq  > 1).sum())
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Unique Authors",       fdf["author"].nunique())
+    m2.metric("One-time Posters",     one_time)
+    m3.metric("Repeat Contributors",  repeat)
+    m4.metric("Anonymous Posts",      int(fdf["is_anonymous"].sum()))
+
+    st.caption("Most students post once — InScribe is used as a help desk, not an ongoing community forum.")
+    st.markdown(" ")
+    c1, c2 = st.columns(2)
+
+    with c1:
+        st.markdown("#### Top Authors by Posts")
+        auth = (
+            fdf.groupby("author").agg(
+                Posts=("id","count"),
+                Views=("view_count","sum"),
+                Reactions=("reaction_count","sum"),
+                Channels=("channel","nunique"),
+            ).sort_values("Posts", ascending=False).head(15).reset_index()
+        )
+        auth.index = range(1, len(auth)+1)
+        st.dataframe(auth, use_container_width=True, height=460)
+
+    with c2:
+        st.markdown("#### Who Drives the Most Views?")
+        st.caption("Authors whose posts attract the most student attention.")
+        top_v = auth.nlargest(12, "Views").sort_values("Views")
+        fig = px.bar(
+            top_v, x="Views", y="author", orientation="h",
+            color="Posts", color_continuous_scale="Blues",
+            text="Views",
+            labels={"author":"","Views":"Total Views Generated"},
+        )
+        fig.update_traces(texttemplate="%{text:,}", textposition="outside",
+                          marker_opacity=0.9)
+        fig.update_layout(coloraxis_colorbar_title="Posts",
+                          coloraxis_colorbar=dict(
+                              tickfont=dict(color=LABEL),
+                              title=dict(font=dict(color=LABEL)),
+                          ))
+        chart_layout(fig, height=460, legend=False)
+        st.plotly_chart(fig, use_container_width=True)
+
+# ════════════════════════════════════════════════
+# TAB 5 — CAREER OUTCOMES SURVEY
+# ════════════════════════════════════════════════
+with tab5:
+    D = load_netlify_charts()
+    if D is None:
+        st.warning("netlify_charts.json not found in the dashboard folder.")
+    else:
+        def netlify_fig(key, height=380):
+            spec = D[key]
+            fig = go.Figure(data=spec["data"], layout=spec["layout"], skip_invalid=True)
+            fig.update_layout(
+                template=TEMPLATE,
+                paper_bgcolor=BG, plot_bgcolor=BG,
+                height=height,
+                margin=dict(l=10, r=10, t=40, b=10),
+                font=dict(color=LABEL, family="Inter, sans-serif"),
+            )
+            return fig
+
+        st.markdown("### MS-DS Career Outcomes Survey")
+        st.caption("56 alumni respondents · Survey period: May – July 2026 · University of Colorado Boulder")
+
+        # ── KPI row ───────────────────────────────────────────────────────────
+        k1, k2, k3, k4, k5, k6 = st.columns(6)
+        k1.metric("Respondents",       "56")
+        k2.metric("Employed Full-Time","73%")
+        k3.metric("Career Switchers",  "53%")
+        k4.metric("Got Promoted",      "56%")
+        k5.metric("Very Satisfied",    "41%")
+        k6.metric("Would Recommend",   "82%")
+
+        st.divider()
+
+        # ── Employment & Career Outcomes ──────────────────────────────────────
+        st.markdown("#### Employment & Career Outcomes")
+        c1, c2 = st.columns(2)
+        with c1:
+            st.plotly_chart(netlify_fig("emp", 340), use_container_width=True)
+        with c2:
+            st.plotly_chart(netlify_fig("cs", 340), use_container_width=True)
+
+        c1, c2 = st.columns(2)
+        with c1:
+            st.plotly_chart(netlify_fig("promo", 320), use_container_width=True)
+        with c2:
+            st.plotly_chart(netlify_fig("path", 320), use_container_width=True)
+            st.caption("'Already employed' recoded from free-text 'Other' responses")
+
+        st.plotly_chart(netlify_fig("jsd", 300), use_container_width=True)
+        st.caption("Only the 21 respondents who actively searched and found a role")
+
+        st.divider()
+
+        # ── Satisfaction & Program Value ──────────────────────────────────────
+        st.markdown("#### Satisfaction & Program Value")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.plotly_chart(netlify_fig("sat", 340), use_container_width=True)
+        with c2:
+            st.plotly_chart(netlify_fig("nps", 340), use_container_width=True)
+        with c3:
+            st.plotly_chart(netlify_fig("ph", 340), use_container_width=True)
+
+        st.divider()
+
+        # ── Compensation & Seniority ──────────────────────────────────────────
+        st.markdown("#### Compensation & Seniority")
+        c1, c2 = st.columns(2)
+        with c1:
+            st.plotly_chart(netlify_fig("inc", 360), use_container_width=True)
+        with c2:
+            st.plotly_chart(netlify_fig("cl", 360), use_container_width=True)
+
+        st.divider()
+
+        # ── Demographics & Background ─────────────────────────────────────────
+        st.markdown("#### Demographics & Background")
+        st.plotly_chart(netlify_fig("ind", 360), use_container_width=True)
+        st.caption("Industries with < 3 respondents grouped into 'Other'")
+
+        c1, c2 = st.columns(2)
+        with c1:
+            st.plotly_chart(netlify_fig("age", 340), use_container_width=True)
+        with c2:
+            st.plotly_chart(netlify_fig("mot", 340), use_container_width=True)
+
+        st.plotly_chart(netlify_fig("gt", 320), use_container_width=True)
+
+        st.divider()
+
+        # ── Resources & Program Highlights ────────────────────────────────────
+        st.markdown("#### Resources & Program Highlights")
+        c1, c2 = st.columns(2)
+        with c1:
+            st.plotly_chart(netlify_fig("res", 360), use_container_width=True)
+            st.caption("Multi-select · N/A excluded · counts can exceed 56")
+        with c2:
+            st.plotly_chart(netlify_fig("hl", 360), use_container_width=True)
+            st.caption("Multi-select · 'None of these' and N/A excluded")
+
+
+# ════════════════════════════════════════════════
+# TAB 6 — INSCRIBE FEEDBACK SURVEY
+# ════════════════════════════════════════════════
+with tab6:
+    sf = load_inscribe_feedback()
+    if sf is None:
+        st.warning("inscribe_feedback_survey.csv not found in the dashboard folder.")
+    else:
+        def expand_multi(series):
+            counts = {}
+            for val in series.dropna():
+                for item in str(val).split(","):
+                    item = item.strip()
+                    if item and item.lower() != "nan":
+                        counts[item] = counts.get(item, 0) + 1
+            return pd.Series(counts).sort_values()
+
+        def rating_bar(series, title, color=ACCENT, height=300):
+            all_vals = pd.Series(range(1, 11), dtype=float)
+            vc = series.dropna().value_counts().reindex(all_vals, fill_value=0).reset_index()
+            vc.columns = ["Score", "Count"]
+            avg = series.dropna().mean()
+            fig = px.bar(vc, x="Score", y="Count", text="Count",
+                         labels={"Score": "Rating (1-10)", "Count": "# Responses"},
+                         title=f"{title}  (avg {avg:.1f})")
+            fig.update_traces(marker_color=color, marker_opacity=0.85,
+                              textposition="outside")
+            fig.update_layout(xaxis=dict(dtick=1))
+            chart_layout(fig, height=height, legend=False)
+            return fig
+
+        st.markdown("### InScribe Feedback Survey — July 2026")
+        st.caption("322 responses collected Jan – Jul 2026 · Students across the CU Boulder MSDS program")
+
+        # ── KPIs ─────────────────────────────────────────────────────────────
+        visited     = sf["Q2"].dropna()
+        pct_visited = int((visited == "Yes").sum() / len(visited) * 100) if len(visited) else 0
+        avg_help    = sf["Q4_1"].dropna().mean()
+        pref_df     = sf["Q14"].dropna()
+        n_slack     = (pref_df == "I prefer Slack because...").sum()
+        n_inscribe  = (pref_df == "I prefer InScribe because...").sum()
+        pct_prefer_inscribe = int(n_inscribe / max(n_slack + n_inscribe, 1) * 100)
+        avg_rec     = sf["Q13_1"].dropna().mean()
+        n_asked     = (sf["Q6"].dropna() == "Yes").sum()
+        pct_asked   = int(n_asked / max(sf["Q6"].dropna().shape[0], 1) * 100)
+
+        k1, k2, k3, k4, k5 = st.columns(5)
+        k1.metric("Respondents",          f"{len(sf):,}")
+        k2.metric("% Visited InScribe",   f"{pct_visited}%")
+        k3.metric("Avg Helpfulness",      f"{avg_help:.1f} / 10")
+        k4.metric("% Prefer InScribe",    f"{pct_prefer_inscribe}%")
+        k5.metric("Avg Recommend Score",  f"{avg_rec:.1f} / 10")
+
+        st.divider()
+
+        # ── Visited & Asked donuts ────────────────────────────────────────────
+        st.markdown("#### Participation Overview")
+        c1, c2 = st.columns(2)
+
+        with c1:
+            st.markdown("##### Have you visited InScribe?")
+            vc = sf["Q2"].dropna().value_counts().reset_index()
+            vc.columns = ["Answer", "Count"]
+            fig = px.pie(vc, names="Answer", values="Count",
+                         color_discrete_map={"Yes": "#38bdf8", "No": "#f87171"},
+                         hole=0.55)
+            fig.update_traces(textposition="inside", textinfo="percent+label",
+                              textfont_size=13,
+                              marker=dict(line=dict(color="#0f172a", width=2)))
+            fig.update_layout(showlegend=False, height=280, margin=dict(l=0,r=0,t=10,b=0),
+                              template=TEMPLATE, paper_bgcolor=BG)
+            st.plotly_chart(fig, use_container_width=True)
+
+        with c2:
+            st.markdown("##### Have you asked a question?")
+            vc2 = sf["Q6"].dropna().value_counts().reset_index()
+            vc2.columns = ["Answer", "Count"]
+            fig2 = px.pie(vc2, names="Answer", values="Count",
+                          color_discrete_map={"Yes": "#4ade80", "No": "#fb923c"},
+                          hole=0.55)
+            fig2.update_traces(textposition="inside", textinfo="percent+label",
+                               textfont_size=13,
+                               marker=dict(line=dict(color="#0f172a", width=2)))
+            fig2.update_layout(showlegend=False, height=280, margin=dict(l=0,r=0,t=10,b=0),
+                               template=TEMPLATE, paper_bgcolor=BG)
+            st.plotly_chart(fig2, use_container_width=True)
+
+        st.divider()
+
+        # ── Why not visited / why not asked ──────────────────────────────────
+        st.markdown("#### Barriers to Engagement")
+        c1, c2 = st.columns(2)
+
+        with c1:
+            st.markdown("##### Why didn't you visit InScribe?")
+            st.caption("Multi-select — among the 78 non-visitors")
+            reasons_no_visit = expand_multi(sf["Q3"])
+            if len(reasons_no_visit):
+                fig = px.bar(reasons_no_visit.reset_index(),
+                             x="count", y="Q3", orientation="h",
+                             text="count",
+                             labels={"Q3": "", "count": "# Students"})
+                fig.update_traces(marker_color="#f87171", marker_opacity=0.85,
+                                  textposition="outside")
+                chart_layout(fig, height=280, legend=False)
+                st.plotly_chart(fig, use_container_width=True)
+
+        with c2:
+            st.markdown("##### Why didn't you ask a question?")
+            st.caption("Multi-select — among the 169 who didn't ask")
+            reasons_no_ask = expand_multi(sf["Q7"])
+            if len(reasons_no_ask):
+                fig2 = px.bar(reasons_no_ask.reset_index(),
+                              x="count", y="Q7", orientation="h",
+                              text="count",
+                              labels={"Q7": "", "count": "# Students"})
+                fig2.update_traces(marker_color="#fb923c", marker_opacity=0.85,
+                                   textposition="outside")
+                chart_layout(fig2, height=280, legend=False)
+                st.plotly_chart(fig2, use_container_width=True)
+
+        st.divider()
+
+        # ── Visit frequency ───────────────────────────────────────────────────
+        st.markdown("#### Visit Frequency")
+        freq_order = [
+            "Multiple times per day", "Once a day", "A few times a week",
+            "Once a week", "A couple of times per month", "Once a month",
+            "Less than once a month", "Hardly ever"
+        ]
+        freq_vc = sf["Q5"].dropna().value_counts()
+        freq_vc = freq_vc.reindex([x for x in freq_order if x in freq_vc.index]).reset_index()
+        freq_vc.columns = ["Frequency", "Count"]
+        fig_freq = px.bar(freq_vc, x="Frequency", y="Count", text="Count",
+                          labels={"Frequency": "", "Count": "# Students"})
+        fig_freq.update_traces(marker_color=ACCENT, marker_opacity=0.85,
+                               textposition="outside")
+        chart_layout(fig_freq, height=300, xangle=-20, legend=False)
+        st.plotly_chart(fig_freq, use_container_width=True)
+
+        st.divider()
+
+        # ── Rating scales ─────────────────────────────────────────────────────
+        st.markdown("#### Experience Ratings (1 – 10)")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.plotly_chart(rating_bar(sf["Q4_1"], "Helpfulness of InScribe Content",
+                                       "#38bdf8"), use_container_width=True)
+        with c2:
+            st.plotly_chart(rating_bar(sf["Q9_1"], "Comfort Asking Questions",
+                                       "#a78bfa"), use_container_width=True)
+        with c3:
+            st.plotly_chart(rating_bar(sf["Q10_1"], "Likelihood to Answer Others",
+                                       "#4ade80"), use_container_width=True)
+
+        st.divider()
+
+        # ── Answer useful + Recommend ─────────────────────────────────────────
+        st.markdown("#### Answer Usefulness & Recommendation")
+        c1, c2 = st.columns(2)
+
+        with c1:
+            st.markdown("##### Was the answer you received useful?")
+            useful_vc = sf["Q8"].dropna().value_counts().reset_index()
+            useful_vc.columns = ["Response", "Count"]
+            fig = px.bar(useful_vc, x="Response", y="Count", text="Count",
+                         color="Response",
+                         color_discrete_map={
+                             "Yes and it was useful":      "#4ade80",
+                             "Yes but it was not useful":  "#fbbf24",
+                             "No":                         "#f87171",
+                         },
+                         labels={"Response": "", "Count": "# Students"})
+            fig.update_traces(textposition="outside", marker_opacity=0.85)
+            chart_layout(fig, height=300, legend=False)
+            st.plotly_chart(fig, use_container_width=True)
+
+        with c2:
+            st.plotly_chart(rating_bar(sf["Q13_1"], "Likelihood to Recommend InScribe",
+                                       "#fbbf24", height=300), use_container_width=True)
+            st.caption("NPS-style: scores 1–6 = detractors, 7–8 = passives, 9–10 = promoters")
+
+        st.divider()
+
+        # ── Slack vs InScribe ─────────────────────────────────────────────────
+        st.markdown("#### Slack vs InScribe Preference")
+        st.caption(f"Among {n_slack + n_inscribe} students who shared a platform preference (others skipped)")
+        pref_data = pd.DataFrame({
+            "Platform": ["Prefer Slack", "Prefer InScribe"],
+            "Count":    [int(n_slack), int(n_inscribe)],
+        })
+        fig_pref = px.bar(pref_data, x="Platform", y="Count", text="Count",
+                          color="Platform",
+                          color_discrete_map={
+                              "Prefer Slack":     "#fbbf24",
+                              "Prefer InScribe":  "#38bdf8",
+                          },
+                          labels={"Platform": "", "Count": "# Students"})
+        fig_pref.update_traces(textposition="outside", marker_opacity=0.9)
+        chart_layout(fig_pref, height=300, legend=False)
+        col_c, col_d = st.columns([1, 1])
+        with col_c:
+            st.plotly_chart(fig_pref, use_container_width=True)
+        with col_d:
+            st.markdown(" ")
+            st.markdown(" ")
+            st.info(f"**{int(n_slack/max(n_slack+n_inscribe,1)*100)}%** of students prefer Slack "
+                    f"over InScribe ({int(n_inscribe/max(n_slack+n_inscribe,1)*100)}% prefer InScribe).")
+            st.markdown(
+                "**Top Slack reasons:** historical content, course-specific channels, "
+                "better discoverability, familiarity & adoption.\n\n"
+                "**Top InScribe reasons:** better text formatting (code/math), "
+                "thread replies, program-wide visibility."
+            )
+
+
+st.divider()
+st.caption("Scraped & analysed by Supritha Kulkarni · CU Boulder MSDS · June 2026 · Built with Python + Streamlit")
