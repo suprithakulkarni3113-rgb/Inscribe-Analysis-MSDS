@@ -1,7 +1,7 @@
 """
 CU Boulder MSDS — InScribe Community Analysis Dashboard
 """
-import html, re
+import html, re, os
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -155,7 +155,7 @@ def load_inscribe_feedback():
 
 
 @st.cache_data
-def load():
+def load(_mtime):
     df = pd.read_csv(OUT / "conversations.csv")
     for col in ["title", "body", "author", "channel", "last_responder"]:
         df[col] = df[col].apply(clean)
@@ -177,7 +177,8 @@ def load():
     df["is_anonymous"]  = df["is_anonymous"].astype(str).str.lower().isin(["true","1","yes"])
     return df
 
-df = load()
+_csv_mtime = os.path.getmtime(OUT / "conversations.csv")
+df = load(_csv_mtime)
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
