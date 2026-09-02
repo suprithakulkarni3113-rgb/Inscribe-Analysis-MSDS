@@ -186,7 +186,7 @@ with st.sidebar:
     sel_type = st.selectbox("Post Type", ["All Types"] + sorted(df["type_label"].dropna().unique()))
     all_m    = sorted(df["month"].dropna().unique())
     sel_m    = st.multiselect("Month(s)", all_m, default=all_m)
-    st.caption("Data: Dec 2025 – Jun 2026")
+    st.caption(f"Data: {df['month'].min()} – {df['month'].max()}")
 
 fdf = df.copy()
 if sel_ch   != "All Channels": fdf = fdf[fdf["channel"] == sel_ch]
@@ -198,7 +198,7 @@ shares    = fdf[fdf["type_label"] == "Share / Resource"]
 
 # ── Header ────────────────────────────────────────────────────────────────────
 st.title("CU Boulder MSDS — InScribe Community Analysis")
-st.caption("Analysing whether InScribe is effectively supporting students · Dec 2025 – Jun 2026")
+st.caption(f"Analysing whether InScribe is effectively supporting students · {df['month'].min()} – {df['month'].max()}")
 st.divider()
 
 # ── KPIs ─────────────────────────────────────────────────────────────────────
@@ -832,4 +832,4 @@ with tab6:
 
 
 st.divider()
-st.caption("Scraped & analysed by Supritha Kulkarni · CU Boulder MSDS · June 2026 · Built with Python + Streamlit")
+st.caption("Scraped & analysed by Supritha Kulkarni · CU Boulder MSDS · Aug 2026 · Built with Python + Streamlit")
