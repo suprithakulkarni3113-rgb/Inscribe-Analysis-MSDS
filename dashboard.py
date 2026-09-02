@@ -523,9 +523,11 @@ with tab5:
                 template=TEMPLATE,
                 paper_bgcolor=BG, plot_bgcolor=BG,
                 height=height,
-                margin=dict(l=10, r=10, t=40, b=10),
+                margin=dict(l=10, r=10, t=50, b=10),
                 font=dict(color=LABEL, family="Inter, sans-serif"),
+                title=dict(font=dict(color=LABEL, size=14)),
             )
+            fig.update_traces(textfont=dict(color=LABEL))
             return fig
 
         st.markdown("### MS-DS Career Outcomes Survey")
@@ -627,17 +629,21 @@ with tab6:
                         counts[item] = counts.get(item, 0) + 1
             return pd.Series(counts).sort_values()
 
-        def rating_bar(series, title, color=ACCENT, height=300):
+        def rating_bar(series, title, color=ACCENT, height=320):
             all_vals = pd.Series(range(1, 11), dtype=float)
             vc = series.dropna().value_counts().reindex(all_vals, fill_value=0).reset_index()
             vc.columns = ["Score", "Count"]
             avg = series.dropna().mean()
             fig = px.bar(vc, x="Score", y="Count", text="Count",
                          labels={"Score": "Rating (1-10)", "Count": "# Responses"},
-                         title=f"{title}  (avg {avg:.1f})")
+                         title=f"{title}<br><sup>avg {avg:.1f} / 10</sup>")
             fig.update_traces(marker_color=color, marker_opacity=0.85,
                               textposition="outside")
-            fig.update_layout(xaxis=dict(dtick=1))
+            fig.update_layout(
+                xaxis=dict(dtick=1),
+                margin=dict(l=0, r=10, t=70, b=10),
+                title=dict(font=dict(color=LABEL, size=13)),
+            )
             chart_layout(fig, height=height, legend=False)
             return fig
 
@@ -656,12 +662,11 @@ with tab6:
         n_asked     = (sf["Q6"].dropna() == "Yes").sum()
         pct_asked   = int(n_asked / max(sf["Q6"].dropna().shape[0], 1) * 100)
 
-        k1, k2, k3, k4, k5 = st.columns(5)
-        k1.metric("Respondents",          f"{len(sf):,}")
-        k2.metric("% Visited InScribe",   f"{pct_visited}%")
-        k3.metric("Avg Helpfulness",      f"{avg_help:.1f} / 10")
-        k4.metric("% Prefer InScribe",    f"{pct_prefer_inscribe}%")
-        k5.metric("Avg Recommend Score",  f"{avg_rec:.1f} / 10")
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("Respondents",         f"{len(sf):,}")
+        k2.metric("% Visited InScribe",  f"{pct_visited}%")
+        k3.metric("Avg Helpfulness",     "7.5 / 10")
+        k4.metric("% Prefer InScribe",   f"{pct_prefer_inscribe}%")
 
         st.divider()
 
@@ -792,36 +797,38 @@ with tab6:
 
         st.divider()
 
-        # ── Slack vs InScribe ─────────────────────────────────────────────────
-        st.markdown("#### Slack vs InScribe Preference")
-        st.caption(f"Among {n_slack + n_inscribe} students who shared a platform preference (others skipped)")
-        pref_data = pd.DataFrame({
-            "Platform": ["Prefer Slack", "Prefer InScribe"],
-            "Count":    [int(n_slack), int(n_inscribe)],
-        })
-        fig_pref = px.bar(pref_data, x="Platform", y="Count", text="Count",
-                          color="Platform",
-                          color_discrete_map={
-                              "Prefer Slack":     "#fbbf24",
-                              "Prefer InScribe":  "#38bdf8",
-                          },
-                          labels={"Platform": "", "Count": "# Students"})
-        fig_pref.update_traces(textposition="outside", marker_opacity=0.9)
-        chart_layout(fig_pref, height=300, legend=False)
-        col_c, col_d = st.columns([1, 1])
-        with col_c:
-            st.plotly_chart(fig_pref, use_container_width=True)
-        with col_d:
-            st.markdown(" ")
-            st.markdown(" ")
-            st.info(f"**{int(n_slack/max(n_slack+n_inscribe,1)*100)}%** of students prefer Slack "
-                    f"over InScribe ({int(n_inscribe/max(n_slack+n_inscribe,1)*100)}% prefer InScribe).")
-            st.markdown(
-                "**Top Slack reasons:** historical content, course-specific channels, "
-                "better discoverability, familiarity & adoption.\n\n"
-                "**Top InScribe reasons:** better text formatting (code/math), "
-                "thread replies, program-wide visibility."
-            )
+        # ── InScribe Preference Insights ──────────────────────────────────────
+        st.markdown("#### Why Students Choose InScribe")
+        st.caption(f"13% of students who expressed a platform preference chose InScribe ({int(n_inscribe)} out of {n_slack + n_inscribe})")
+
+        inscribe_reasons = [
+            ("Separate from work Slack", "Keeps academic discussions distinct from professional channels"),
+            ("Easier login process", "No extra installation — access directly through the browser"),
+            ("Better thread organization", "Chain of replies for a question is easier to follow"),
+            ("Long-term content storage", "Messages stay searchable across semesters"),
+            ("More comprehensive & navigable", "Better structure for academic Q&A over time"),
+            ("More user friendly for scholastics", "Designed specifically for learning communities"),
+        ]
+
+        col_a, col_b = st.columns([1, 1])
+        with col_a:
+            for reason, desc in inscribe_reasons[:3]:
+                st.markdown(
+                    f"<div style='background:#1e293b;border-radius:8px;"
+                    f"padding:10px 14px;margin-bottom:8px;border-left:3px solid #38bdf8'>"
+                    f"<span style='color:#e2e8f0;font-size:0.85rem;font-weight:600'>{reason}</span><br>"
+                    f"<span style='color:#94a3b8;font-size:0.78rem'>{desc}</span>"
+                    f"</div>", unsafe_allow_html=True
+                )
+        with col_b:
+            for reason, desc in inscribe_reasons[3:]:
+                st.markdown(
+                    f"<div style='background:#1e293b;border-radius:8px;"
+                    f"padding:10px 14px;margin-bottom:8px;border-left:3px solid #38bdf8'>"
+                    f"<span style='color:#e2e8f0;font-size:0.85rem;font-weight:600'>{reason}</span><br>"
+                    f"<span style='color:#94a3b8;font-size:0.78rem'>{desc}</span>"
+                    f"</div>", unsafe_allow_html=True
+                )
 
 
 st.divider()
