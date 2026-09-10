@@ -6,7 +6,7 @@ An end-to-end data pipeline that scrapes, processes, and visualizes conversation
 
 ## Live Dashboard
 
-> 🚀 [View on Streamlit Cloud](#) *(deploy link goes here)*
+> 🚀 [https://inscribe-analysis-msds-22xjoqdrgdyzbbcfe9xebe.streamlit.app/](#) *(deploy link goes here)*
 
 ---
 
